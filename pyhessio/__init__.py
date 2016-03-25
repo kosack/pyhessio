@@ -2,7 +2,8 @@ import numpy as np
 import os
 import ctypes
 
-__all__ = ['move_to_next_event','move_to_next_mc_event','file_open','close_file',
+__all__ = ['move_to_next_event','move_to_next_mc_event',
+           'file_open','file_close', 'close_file',
            'get_global_event_count','get_run_number',
            'get_num_telescope','get_telescope_with_data_list',
            'get_teldata_list', 'get_telescope_position',
@@ -14,7 +15,7 @@ __all__ = ['move_to_next_event','move_to_next_mc_event','file_open','close_file'
            'get_pixel_timing_threshold','get_pixel_timing_peak_global',
            'get_mc_shower_primary_id','get_mc_shower_h_first_int',
            'get_mc_event_xcore', 'get_mc_event_ycore' ,'get_mc_shower_energy',
-           'get_mc_event_offset_fov',
+           'get_mc_event_offset_fov','get_mc_number_photon_electron',
            'get_mc_shower_azimuth' ,'get_mc_shower_altitude','get_adc_known',
            'get_ref_shape' ,'get_ref_step','get_time_slice',
            'get_ref_shapes',  'get_nrefshape' ,'get_lrefshape',
@@ -82,6 +83,8 @@ lib.get_mc_event_xcore.restype = ctypes.c_double
 lib.get_mc_event_ycore.restype = ctypes.c_double
 lib.get_mc_event_offset_fov.argtypes = [np.ctypeslib.ndpointer(ctypes.c_double, flags="C_CONTIGUOUS")]
 lib.get_mc_event_offset_fov.restype = ctypes.c_int
+lib.get_mc_number_photon_electron.argtypes = [ctypes.c_int,ctypes.c_int,np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
+lib.get_mc_number_photon_electron.restype = ctypes.c_int
 lib.get_mc_shower_energy.restype = ctypes.c_double
 lib.get_mc_shower_azimuth.restype = ctypes.c_double
 lib.get_mc_shower_altitude.restype = ctypes.c_double
@@ -119,24 +122,24 @@ lib.get_telescope_ids.restype = ctypes.c_int
 
 
 TEL_INDEX_NOT_VALID  =-2
+PIXEL_INDEX_NOT_VALID =-3
 
-class HessioGeneralError(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
 
-class HessioTelescopeIndexError(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
+class HessioError(Exception):
+    pass
 
-class HessioChannelIndexError(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
+
+class HessioGeneralError(HessioError):
+    pass
+
+
+class HessioTelescopeIndexError(HessioError):
+    pass
+
+
+class HessioChannelIndexError(HessioError):
+    pass
+
 
 def move_to_next_event(limit=0):
     """
@@ -160,6 +163,7 @@ def move_to_next_event(limit=0):
         if res != -1:
             yield res, result[0]
             evt_num = evt_num + 1
+
 
 def move_to_next_mc_event(limit=0):
     """
@@ -186,6 +190,7 @@ def move_to_next_mc_event(limit=0):
             yield res, result[0]
             sim_evt_num = sim_evt_num + 1
 
+
 def file_open(filename):
     """
     Open input data file
@@ -201,6 +206,13 @@ def file_open(filename):
     b_filename = filename.encode('utf-8')
     return lib.file_open(b_filename)
 
+
+def file_close():
+    """
+    Close opened iobuf
+    """
+    lib.close_file()
+
 def close_file():
     """
     Close opened iobuf
@@ -214,6 +226,7 @@ def get_global_event_count():
     counter for system trigger
     """
     return lib.get_global_event_count()
+
 
 def get_run_number():
     """
@@ -249,6 +262,7 @@ def get_num_telescope():
     else:
         raise(HessioGeneralError("number of telescopes in current run not available"))
 
+
 def get_num_tel_trig():
     """
     Returns
@@ -264,6 +278,7 @@ def get_num_tel_trig():
     if number > 0 : return number
     else:
         raise(HessioGeneralError("number of triggered telescopes in central event not available"))
+
 
 
 def get_mirror_area(telescope_id):
@@ -293,6 +308,7 @@ def get_mirror_area(telescope_id):
     elif result == TEL_INDEX_NOT_VALID:
         raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
     raise(HessioGeneralError("hsdata->camera_set[itel].mirror_area not available"))
+
 
 def get_telescope_with_data_list():
     """
@@ -331,12 +347,13 @@ def get_teldata_list():
     else:
         raise(HessioGeneralError("hsdata->event.num_teldata is not available"))
 
+
 def get_telescope_position(telescope_id):
     """
     Returns
     -------
     Telescope position for a telescope id.
-      x is counted from array reference position towards North, 
+      x is counted from array reference position towards North,
       y towards West,
       z upwards.
 
@@ -353,7 +370,7 @@ def get_telescope_position(telescope_id):
     if no telescope exist with this id
     """
     pos = np.zeros(3,dtype=np.double)
-    
+
     result = lib.get_telescope_position(telescope_id,pos)
     if result == 0:
         return pos
@@ -381,6 +398,7 @@ def get_num_teldata():
         return number
     else:
         raise(HessioGeneralError("hsdata->event.num_teldata is not available"))
+
 
 def get_num_channel(telescope_id):
     """
@@ -517,6 +535,7 @@ def get_pixel_timing_num_times_types(telescope_id):
     else:
         raise(HessioGeneralError("hsdata->event.teldata[itel].pixtm->num_types  not available"))
 
+
 def get_num_samples(telescope_id):
     """
     Returns
@@ -541,8 +560,6 @@ def get_num_samples(telescope_id):
         raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
     else:
         raise(HessioGeneralError("ata->event.teldata[itel].raw->num->samples not available"))
-
-
 
 
 def get_adc_sample(telescope_id,channel):
@@ -689,6 +706,7 @@ def get_calibration(telescope_id):
     npix = get_num_pixels(telescope_id)
 
     ngain =  get_num_channel(telescope_id)
+    ngain = 2
     calibration = np.zeros(ngain*npix,dtype=np.double)
 
     result = lib.get_calibration(telescope_id,calibration)
@@ -700,6 +718,7 @@ def get_calibration(telescope_id):
     else:
         raise(HessioGeneralError("no calibration data for telescope "
                               + str(telescope_id)))
+
 
 def get_pedestal(telescope_id):
     """
@@ -734,6 +753,7 @@ def get_pedestal(telescope_id):
         raise(HessioGeneralError("no pedestal data for telescope "
                               + str(telescope_id)))
 
+
 def get_pixel_position(telescope_id):
     """
     Returns
@@ -766,6 +786,7 @@ def get_pixel_position(telescope_id):
         raise(HessioGeneralError("no pixel position for telescope "
                               + str(telescope_id)))
 
+
 def get_pixel_shape(telescope_id):
     """
     Returns
@@ -796,6 +817,7 @@ def get_pixel_shape(telescope_id):
     else:
         raise(HessioGeneralError("no pixel position for telescope "
                               + str(telescope_id)))
+
 
 def get_pixel_area(telescope_id):
     """
@@ -828,6 +850,7 @@ def get_pixel_area(telescope_id):
         raise(HessioGeneralError("no pixel position for telescope "
                               + str(telescope_id)))
 
+
 def get_mc_event_xcore():
     """
     Returns
@@ -847,6 +870,7 @@ def get_mc_event_ycore():
     """
     return  lib.get_mc_event_ycore()
 
+
 def get_mc_event_offset_fov():
     """
     Returns
@@ -862,12 +886,34 @@ def get_mc_event_offset_fov():
     if information is not available
     """
     offset = np.zeros(2,dtype=np.double)
-    
+
     result = lib.get_mc_event_offset_fov(offset)
     if result == 0:
         return offset
     else:
         raise(HessioGeneralError("hsdata is not available"))
+
+def get_mc_number_photon_electron(telescope_id, pixel_id):
+    """
+    Returns
+    -------
+    numbers of photon electron
+    Raises
+    ------
+    HessioTelescopeIndexError
+    HessioPixelIndexError
+    or HessioGeneralError if hsdata is not available
+    if information is not available or if telscioe_id or pixel_id are wrong
+    """
+    pe = np.zeros(1,dtype=np.int32)
+    result = lib.get_mc_number_photon_electron(telescope_id,pixel_id,pe)
+    if result == TEL_INDEX_NOT_VALID:
+        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
+    elif result == PIXEL_INDEX_NOT_VALID:
+        raise(HessioPixelIndexError("no pixel with id " + str(pixel_id)))
+    elif result < 0:
+        raise(HessioGeneralError("numbers of photon electron not available"))
+    return pe
 
 def get_mc_shower_energy():
     """
@@ -877,6 +923,7 @@ def get_mc_shower_energy():
     """
     return  lib.get_mc_shower_energy()
 
+
 def get_mc_shower_azimuth():
     """
     Returns
@@ -884,6 +931,7 @@ def get_mc_shower_azimuth():
     shower azimuth (N->E) [rad]
     """
     return  lib.get_mc_shower_azimuth()
+
 
 def get_mc_shower_altitude():
     """
@@ -893,23 +941,26 @@ def get_mc_shower_altitude():
     """
     return  lib.get_mc_shower_altitude()
 
+
 def get_mc_shower_primary_id():
     """
     Returns
-    ------- 
+    -------
     shower primary ID
     0 (gamma), 1(e-), 2(mu-), 100*A+Z for nucleons and nuclei,
     negative for antimatter.
     """
     return  lib.get_mc_shower_primary_id()
 
+
 def get_mc_shower_h_first_int():
     """
     Returns
-    ------- 
+    -------
     shower height of first interaction a.s.l. [m]
     """
     return  lib.get_mc_shower_h_first_int()
+
 
 def get_adc_known(telescope_id, channel, pixel_id):
     """
@@ -924,6 +975,7 @@ def get_adc_known(telescope_id, channel, pixel_id):
     pixel_id, int
     """
     return lib.get_adc_known(telescope_id, channel, pixel_id)
+
 
 def get_ref_shape(telescope_id, channel, fshape):
     """
@@ -960,6 +1012,7 @@ def get_ref_shapes(telescope_id,channel):
     else:
         raise(HessioGeneralError("PixelTimming pulse shape(s) not available"))
 
+
 def get_nrefshape(telescope_id):
     """
     Returns:
@@ -971,6 +1024,7 @@ def get_nrefshape(telescope_id):
     telescope_id: int
     """
     return lib.get_nrefshape(telescope_id)
+
 
 def get_lrefshape(telescope_id):
     """
@@ -984,6 +1038,7 @@ def get_lrefshape(telescope_id):
     """
     return lib.get_lrefshape(telescope_id)
 
+
 def get_ref_step(telescope_id):
     """
     Returns:
@@ -994,6 +1049,7 @@ def get_ref_step(telescope_id):
     telescope_id: int
     """
     return lib.get_ref_step(telescope_id)
+
 
 def get_time_slice(telescope_id):
     """
@@ -1006,6 +1062,7 @@ def get_time_slice(telescope_id):
     telescope_id: int
     """
     return lib.get_time_slice(telescope_id)
+
 
 def get_tel_event_gps_time(telescope_id):
     """
@@ -1062,7 +1119,8 @@ def get_central_event_teltrg_list():
         return array
     else:
         raise(HessioGeneralError("hsdata is not available"))
-        
+
+
 def get_camera_rotation_angle(telescope_id):
     """
     Returns
@@ -1073,7 +1131,7 @@ def get_camera_rotation_angle(telescope_id):
     Parameters
     ----------
     telescope_id: int
-    
+
     Raises
     ------
     HessioGeneralError
@@ -1082,16 +1140,17 @@ def get_camera_rotation_angle(telescope_id):
     HessioTelescopeIndexError
     if no telescope exist with this id
     """
-    
+
     result = lib.get_camera_rotation_angle(telescope_id)
     if result >=0 : return result
     elif result == TEL_INDEX_NOT_VALID:
-        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id))) 
+        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
     else:
         raise(HessioGeneralError("hsdata->camera_set[itel].cam_rot not available"))
 
+
 def get_mirror_number(telescope_id):
-    
+
     """
     Returns
     -------
@@ -1100,7 +1159,7 @@ def get_mirror_number(telescope_id):
     Parameters
     ----------
     telescope_id: int
-    
+
     Raises
     ------
     HessioGeneralError
@@ -1113,13 +1172,13 @@ def get_mirror_number(telescope_id):
     result = lib.get_mirror_number(telescope_id)
     if result >= 0 : return result
     elif result == TEL_INDEX_NOT_VALID:
-        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id))) 
+        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
     else:
         raise(HessioGeneralError("hsdata->camera_set[itel].num_mirrors not available"))
 
 
 def get_optical_foclen(telescope_id):
-    
+
     """
     Returns
     -------
@@ -1128,7 +1187,7 @@ def get_optical_foclen(telescope_id):
     Parameters
     ----------
     telescope_id: int
-    
+
     Raises
     ------
     HessioGeneralError
@@ -1139,9 +1198,9 @@ def get_optical_foclen(telescope_id):
     """
 
     result = lib.get_optical_foclen(telescope_id)
-    if result >=0 : return result
+    if result >= 0 : return result
     elif result == TEL_INDEX_NOT_VALID:
-        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id))) 
+        raise(HessioTelescopeIndexError("no telescope with id " + str(telescope_id)))
     else:
         raise(HessioGeneralError("hsdata->camera_set[itel].flen not available"))
 
@@ -1158,10 +1217,9 @@ def get_telescope_ids():
     if information is not available
     """
     num_tel = get_num_telescope()
-    if num_tel >=0:
+    if num_tel >= 0:
         array = np.zeros(num_tel,dtype=np.int32)
         lib.get_telescope_ids(array)
         return array
     else:
         raise(HessioGeneralError("hsdata->run_header.tel_id is not available"))
-

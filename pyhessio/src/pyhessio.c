@@ -45,6 +45,7 @@ double get_mc_shower_azimuth (void);
 double get_mc_shower_altitude (void);
 int get_mc_shower_primary_id(void);
 double get_mc_shower_h_first_int(void);
+int get_mc_number_photon_electron(int telescope_id, int pixel_id, int* pe);
 uint8_t get_adc_known (int telescope_id, int channel, int pixel_id);
 double get_ref_shape (int telescope_id, int channel, int fshape);
 double get_ref_step (int telescope_id);
@@ -67,6 +68,7 @@ static IO_ITEM_HEADER item_header;
 static IO_BUFFER *iobuf = NULL;
 static int file_is_opened = 0;
 #define TEL_INDEX_NOT_VALID -2
+#define PIXEL_INDEX_NOT_VALID -3
 //-----------------------------------
 // Returns array index for specific id
 // Returns TEL_INDEX_NOT_VALID if telescope index is not valid
@@ -82,7 +84,7 @@ int get_telescope_index (int telescope_id){
 
 //----------------------------------
 //Read input file and fill hsdata
-// and item_header global var 
+// and item_header global var
 //----------------------------------
 int file_open (const char *filename){
 	if (filename)
@@ -92,6 +94,7 @@ int file_open (const char *filename){
 		}
 		/* Check assumed limits with the ones compiled into the library. */
 		H_CHECK_MAX();
+
 		if ((iobuf = allocate_io_buffer (1000000L)) == NULL){
 			Error ("Cannot allocate I/O buffer");
 			exit (1);
@@ -108,7 +111,7 @@ int file_open (const char *filename){
 }
 //----------------------------------
 //Read input file and fill hsdata
-// and item_header global var 
+// and item_header global var
 //----------------------------------
 int move_to_next_event (int *event_id){
 	if (!file_is_opened)
@@ -117,7 +120,7 @@ int move_to_next_event (int *event_id){
 	while (rc != IO_TYPE_HESS_EVENT){
 		rc = fill_hsdata (event_id);
 		if (rc < 0){
-			close_file ();
+			//close_file ();
 			return -1;
 		}
 	}
@@ -144,15 +147,18 @@ int move_to_next_mc_event (int *event_id){
 //  Cleanly close iobuf
 //----------------------------------
 void close_file (){
-	if (iobuf->input_file != NULL && iobuf->input_file != stdin)
+	if (iobuf->input_file != NULL && iobuf->input_file != stdin && file_is_opened)
 	{
 		fileclose (iobuf->input_file);
+		if (hsdata != NULL) free_hsdata();
 		iobuf->input_file = NULL;
 		reset_io_block (iobuf);
 		free_io_buffer(iobuf);
-		free_hsdata();
+		file_is_opened = 0;
 	}
 	if (iobuf->output_file != NULL) fileclose (iobuf->output_file);
+	iobuf = NULL;
+
 }
 //------------------------------------------
 //  return run number from last readed event
@@ -198,7 +204,7 @@ int get_telescope_with_data_list (int *list){
 }
 //----------------------------------------------------------------
 // Returns x,y,z positions of the telescopes [m].
-//   x is counted from array reference position towards North, 
+//   x is counted from array reference position towards North,
 //   y towards West,
 //   z upwards.
 // Returns TEL_INDEX_NOT_VALID if telescope index is not valid
@@ -251,7 +257,7 @@ int get_global_event_count (void){
 	return -1;
 }
 //-------------------------------------------
-// Set seconds and nanosecond parameter with 
+// Set seconds and nanosecond parameter with
 // the central trigger time
 //-------------------------------------------
 int get_central_event_gps_time (long *seconds, long *nanoseconds){
@@ -380,7 +386,7 @@ double get_ref_step (int telescope_id){
 	return -0.;
 }
 //----------------------------------------------------------------
-// Returns individual channel recorded information ? 
+// Returns individual channel recorded information ?
 // Bit 0: sum, 1: samples, 2: ADC was in saturation.
 // Returns TEL_INDEX_NOT_VALID if telescope index is not valid
 //----------------------------------------------------------------
@@ -406,6 +412,22 @@ int get_mc_shower_primary_id(){
 	if ( hsdata != NULL){
 		return hsdata->mc_shower.primary_id;
 		}
+	return -1;
+}
+//----------------------------------------------------------------
+// pe is a output parameter, fill with numbers of photon electron
+// Returns  0 on success otherwise -1
+//----------------------------------------------------------------
+int get_mc_number_photon_electron(int telescope_id, int pixel_id, int* pe){
+	if (hsdata != NULL  ){
+		int itel = get_telescope_index (telescope_id);
+		if (itel == TEL_INDEX_NOT_VALID)
+			return TEL_INDEX_NOT_VALID;
+   if( pixel_id > H_MAX_PIX)
+	 	return PIXEL_INDEX_NOT_VALID;
+	 *pe = hsdata->mc_event.mc_pe_list[telescope_id].pe_count[pixel_id];
+	 return 0;
+ }
 	return -1;
 }
 //----------------------------------------------------------------
@@ -562,24 +584,22 @@ int get_calibration (int telescope_id, double *calib)
 //----------------------------------------------------------------
 {
 	if (hsdata != NULL)
-		{
+	{
 		int itel = get_telescope_index (telescope_id);
 		if (itel == TEL_INDEX_NOT_VALID)
 		return TEL_INDEX_NOT_VALID;
 		LasCalData calibration = hsdata->tel_lascal[itel];
 		unsigned int num_gain = calibration.num_gains;
 		unsigned int num_pixels = hsdata->camera_set[itel].num_pixels;
-		unsigned int ipix = 0.;
-		for (ipix = 0.; ipix < num_pixels; ipix++)	// loop over pixels
-		{
 		unsigned int igain = 0;
-		for (igain = 0; igain < num_gain; igain++)
-			{
-			*calib++ = calibration.calib[igain][ipix];
-			}			// end loop gain
-		}			// end of   loop over pixels
+		for (igain = 0; igain < num_gain; igain++) {
+			unsigned int ipix = 0.;
+			for (ipix = 0.; ipix < num_pixels; ipix++) {	// loop over pixels
+				*calib++ = calibration.calib[igain][ipix];
+			}// end loop pixels
+		}// end of   loop over gains
 		return 0;
-		}
+	}
 	return -1;
 }
 //----------------------------------------------------------------
@@ -824,7 +844,7 @@ int fill_hsdata (int *event_id)	//,int *header_readed)
 		return -1;
 	}
 
-	// if ( ( !header_readed) && 
+	// if ( ( !header_readed) &&
 	if (hsdata == NULL &&
 		item_header.type > IO_TYPE_HESS_RUNHEADER &&
 		item_header.type < IO_TYPE_HESS_RUNHEADER + 200){
